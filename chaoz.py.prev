@@ -1,0 +1,978 @@
+import discord, asyncio, datetime, bot, sqlite3, json, pytz, sys, linecache, threading, configparser
+from datetime import *
+from discord.ext import commands, tasks
+from discord.ext.commands import has_permissions, CheckFailure
+from discord.utils import get, parse_time
+from discord_components import DiscordComponents, Button, Select, SelectOption, ComponentsBot, ButtonStyle, component, interaction
+from dateutil import parser
+from qasync import asyncSlot
+
+datab = 'database.sqlite'
+
+db = sqlite3.connect(datab)
+c = db.cursor()
+
+timez = pytz.timezone("US/Eastern")
+
+config = configparser.ConfigParser()
+config.read('config.ini')
+
+# Lists/Dicts
+help_info = [
+  """```asc
+  CHAOZ bot commands:
+  > No commands for users yet
+  ```""",
+  """```asc
+  CHAOZ bot commands (Admin):
+  > roster: Opens the roster panel
+    * To create a roster send all player info with a space seperating each entry (Do no include spaces in the names example for position: "awper and rifler", instead: "awper/rifler")
+  > teams: Opens the team management panel
+  > teamfind: Creates an embed for signing up to the Chaoz team finder
+  ```"""
+]
+team_finder = [
+  {"fields":[{"name":"How to sign up","value":"> Use the signup button and enter your info and when captains\nare looking for members you will be sent an automated message from this bot\n>᲼Make sure to enable direct messages from server members\n>᲼Once you receive a message for being invited to try out for a team dm the captain specified in the notification requesting a tryout","inline":False}],"title":"CHAOZ Team finder","thumbnail":{"url":"https://www.chaoz.gg/wp-content/uploads/2021/12/ChaoZ-Discord-Bot-min.png"},"color":13839167},
+  {"fields":[{"name":"What you'll need to provide to signup","value":"1. Rank\n2. Steam profile link\n3. Faceit profile link\n4. Region","inline":False}],"title":"Please select your rank from the options below","thumbnail":{"url":"https://www.chaoz.gg/wp-content/uploads/2021/12/ChaoZ-Discord-Bot-min.png"},"color":13839167},
+  {"title":"Please select your region","thumbnail":{"url":"https://www.chaoz.gg/wp-content/uploads/2021/12/ChaoZ-Discord-Bot-min.png"},"color":13839167},
+  {"title":"","description":"","thumbnail":{"url":"https://www.chaoz.gg/wp-content/uploads/2021/12/ChaoZ-Discord-Bot-min.png"},"color":13839167}
+]
+cs_rank = {
+  1: "Silver 1",
+  2: "Silver 2",
+  3: "Silver 3",
+  4: "Silver 4",
+  5: "Silver Elite",
+  6: "Silver Elite Master",
+  7: "Gold Nova 1",
+  8: "Gold Nova 2",
+  9: "Gold Nova 3",
+  10: "Gold Nova 4",
+  11: "Master Guardian 1",
+  12: "Master Guardian 2",
+  13: "Master Guardian Elite",
+  14: "Distinguished Master Guardian",
+  15: "Legendary Eagle",
+  16: "Legendary Eagle Master",
+  17: "Supreme Master First Class",
+  18: "Global Elite"
+}
+
+# Global variables
+panel_users = list(config['Panel Users'])
+panel_users = [int(i) for i in panel_users]
+authed_servers = list(config['Authed Servers'])
+authed_servers = [int(i) for i in authed_servers]
+player_find_channels = config['Player Find']
+gVars = config['Global']
+users_signing = []
+server = int(gVars['server'])
+log_channel = int(gVars['log_channel'])
+role_placeholder = int(gVars['role_placeholder'])
+captain_role = int(gVars['captain_role'])
+admin_role = int(gVars['admin_role'])
+
+region_channel = {
+  "NA": int(player_find_channels['NA']),
+  "EU": int(player_find_channels['EU']),
+  "South America": int(player_find_channels['South America']),
+  "ASIA": int(player_find_channels['ASIA'])
+}
+
+#region Functions
+def PrintException():
+    exc_type, exc_obj, tb = sys.exc_info()
+    f = tb.tb_frame
+    lineno = tb.tb_lineno
+    filename = f.f_code.co_filename
+    linecache.checkcache(filename)
+    line = linecache.getline(filename, lineno, f.f_globals)
+    print('EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj))
+
+def embed_tool(title):
+  embed = discord.Embed(description=title)
+  # embed.set_thumbnail(url="https://www.chaoz.gg/wp-content/uploads/2021/12/ChaoZ-Discord-Bot-min.png")
+  embed.set_author(name="CHAOZ", icon_url="https://www.chaoz.gg/wp-content/uploads/2021/12/ChaoZ-Discord-Bot-min.png")
+  return embed
+
+@asyncSlot()
+async def safe_delete(message=None):
+  if message != None:
+    try: await message.delete()
+    except: None
+
+async def get_dm(member):
+    dm = member.dm_channel
+    if member.dm_channel == None:
+        await discord.User.create_dm(member)
+        dm = member.dm_channel
+    return dm
+
+async def log_action(message):
+  await log_channel.send(message)
+
+async def log_embed(icon, message):
+  date = str(datetime.now(timez))
+  time = date.split(' ')[1]
+  time = time.split('.')[0]
+  notif = {"title":f"Notification {time} EST","description":f"{message}","thumbnail":{"url":f"{icon}"},"author":{"name":"CHAOZ","icon_url":"https://www.chaoz.gg/wp-content/uploads/2021/12/ChaoZ-Discord-Bot-min.png"},"color":13839167}
+  await log_channel.send(embed=discord.Embed().from_dict(notif))
+
+async def region_select(bot, message, embed, user):
+  try:
+    await message.edit(embed=embed, components=[[
+      Button(style=ButtonStyle.blue, label="NA", emoji="🇺🇸"),
+      Button(style=ButtonStyle.blue, label="EU", emoji="🇪🇺"),
+      Button(style=ButtonStyle.blue, label="South America", emoji="🇧🇷"),
+      Button(style=ButtonStyle.blue, label="ASIA", emoji="🇯🇵")
+    ]])
+    start = datetime.now(timez)
+    while (datetime.now(timez) - start).total_seconds() < 30:
+      try: 
+        interaction = await bot.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=30)
+        if interaction.user == user:
+          if interaction.component.label == "NA":
+            region = interaction.component.label
+          if interaction.component.label == "EU":
+            region = interaction.component.label
+          if interaction.component.label == "South America":
+            region = interaction.component.label
+          if interaction.component.label == "ASIA":
+            region = interaction.component.label
+          return interaction, region
+      except:
+        safe_delete(message)
+        return False, False
+  except:
+    PrintException()
+
+async def create_signup_embed(title, rank, steam_link=None, faceit=None, region=None):
+  embed = discord.Embed(
+    title=title,
+    color=13839167
+  )
+  embed.add_field(
+    name="What you'll need to provide to signup",
+    value=f"1. Rank {cs_rank[int(rank)]}\n2. Steam profile link {steam_link}\n3. Faceit profile link {faceit}\n4. Region {region}",
+    inline=False
+  )
+  embed.set_thumbnail(url="https://www.chaoz.gg/wp-content/uploads/2021/12/ChaoZ-Discord-Bot-min.png")
+  return embed
+
+async def create_find_embed(user, rank, steam, region, notes=None, faceit=None, faceit_lvl=None):
+  db = sqlite3.connect(datab)
+  c = db.cursor()
+  try:
+    user_id = user
+    user_name = f"<@{user}>"
+    signup_embed = team_finder[3]
+    # faceit_lvl = discord.File(faceit_lvl, "faceit_lvl.png")
+
+    #Remake embed format to discord.Embed()
+
+    if not str(user).isnumeric():
+      user_id = user.id
+      user_name = str(user)
+      signup_embed['thumbnail'] = {"url": f"{str(user.avatar_url)}"}
+    signup_embed['title'] = f"{str(user_name)} is looking for a team!"
+    signup_embed['description'] = f"Discord: <@{user_id}>\nRank: {cs_rank[int(rank)]}\nSteam: {str(steam)}\nFaceit: {str(faceit)}\nRegion: {str(region)}\nAbout me: {str(notes)}"
+    # signup_embed['author'] = {"name": "Faceit lvl", "icon_url": f"attachment://{faceit_lvl.filename}"}
+    channel = server.get_channel(region_channel[region])
+    if channel != None:
+      message = await channel.send(embed=discord.Embed().from_dict(signup_embed), components=[[
+        Button(style=ButtonStyle.blue, label="Claim member", emoji="✔", custom_id=user_id),
+        Button(style=ButtonStyle.green, label="Setup tryout", emoji="🔎", custom_id=f"+{user_id}")
+      ]])
+      c.execute(f"UPDATE team_find SET message=? WHERE discord=?", (str(message.id), str(user_id)))
+      db.commit()
+    else:
+      await log_embed(user.avatar_url, "Failed to get player-find channel")
+  except:
+    PrintException()
+#endregion
+
+#region Teamfind thread
+async def signup_thread(bot, interaction, dm, signup_user):
+  print(f'{str(signup_user)} is signing up for team finder')
+  finished = 'Did not finish signing up'
+  rank = None
+  steam_link = None
+  faceit_link = None
+  faceit_lvl = None
+  region = None
+  notes = None
+  message = await dm.send(embed=discord.Embed().from_dict(team_finder[1]), components=[[
+    Button(style=ButtonStyle.grey, label="----------Silver 1-----------", custom_id='1'),
+    Button(style=ButtonStyle.grey, label="----------Silver 2-----------", custom_id='2'),
+    Button(style=ButtonStyle.grey, label="----------Silver 3-----------", custom_id='3'),
+    Button(style=ButtonStyle.grey, label="----------Silver 4-----------", custom_id='4'),
+    Button(style=ButtonStyle.grey, label="--------Silver Elite---------", custom_id='5')],
+    [
+    Button(style=ButtonStyle.green, label="-----Silver Elite Master-----", custom_id='6'),
+    Button(style=ButtonStyle.green, label="---------Gold Nova 1---------", custom_id='7'),
+    Button(style=ButtonStyle.green, label="---------Gold Nova 2---------", custom_id='8'),
+    Button(style=ButtonStyle.green, label="---------Gold Nova 3---------", custom_id='9'),
+    Button(style=ButtonStyle.green, label="---------Gold Nova 4---------", custom_id='10')],
+    [
+    Button(style=ButtonStyle.blue, label="------Master Guardian 1------", custom_id='11'),
+    Button(style=ButtonStyle.blue, label="------Master Guardian 2------", custom_id='12'),
+    Button(style=ButtonStyle.blue, label="----Master Guardian Elite----", custom_id='13'),
+    Button(style=ButtonStyle.blue, label="Distinguished Master Guardian", custom_id='14'),
+    Button(style=ButtonStyle.blue, label="-------Legendary Eagle-------", custom_id='15')],
+    [
+    Button(style=ButtonStyle.red, label="----Legendary Eagle Master---", custom_id='16'),
+    Button(style=ButtonStyle.red, label="--Supreme Master First Class-", custom_id='17'),
+    Button(style=ButtonStyle.red, label="---------Global Elite--------", custom_id='18')
+  ]])
+  start = datetime.now(timez)
+  while (datetime.now(timez) - start).total_seconds() < 30:
+    try:
+      interaction = await bot.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=30)
+      if interaction.user == signup_user:
+        rank = int(interaction.component.custom_id)
+        await message.edit(embed=await create_signup_embed(title="Please supply your steam community profile link", rank=rank), components=[])
+        await interaction.respond(content="**Send your steam profile link here**")
+        start = datetime.now(timez)
+        while (datetime.now(timez) - start).total_seconds() < 180:
+          interaction = await bot.wait_for("message", check=lambda interaction: interaction.channel == dm, timeout=180)
+          if interaction.author == signup_user:
+            if 'https://steamcommunity.com/id/' in interaction.content or 'https://steamcommunity.com/profiles/' in interaction.content:
+              steam_link = interaction.content
+              try:
+                safe_delete(message)
+                message = await dm.send(embed=embed_tool("Please send your faceit profile url, or reply with 'NA' if you have none"), components=[])
+                start = datetime.now(timez)
+                while (datetime.now(timez) - start).total_seconds() < 180:
+                  interaction = await bot.wait_for("message", check=lambda interaction: interaction.channel == dm, timeout=180)
+                  if interaction.author == signup_user:
+                    if "https://www.faceit.com/" in interaction.content:
+                      faceit_link = interaction.content
+                      break
+                    else:
+                      faceit_link = 'No faceit profile added'
+                      break
+                interaction, region = await region_select(bot, message, await create_signup_embed(title="Please choose your region", rank=rank, steam_link=steam_link, faceit=faceit_link), dm.recipient)
+                if region == False: break
+                await message.edit(embed=await create_signup_embed(title='Write your "About me"', rank=rank, steam_link=steam_link, faceit=faceit_link, region=region), components=[])
+                await interaction.respond(content='**Type an "About me"**')
+                start = datetime.now(timez)
+                while (datetime.now(timez) - start).total_seconds() < 180:
+                  interaction = await bot.wait_for("message", check=lambda interaction: interaction.channel == dm, timeout=180)
+                  if interaction.author == signup_user:
+                    notes = interaction.content
+                    await message.edit(components=[], delete_after=6)
+                    c.execute("INSERT INTO team_find (discord, steam, rank, region, notes, faceit, level) VALUES (?, ?, ?, ?, ?, ?, ?)", (str(signup_user.id), str(steam_link), rank, str(region), str(notes), str(faceit_link), str(faceit_lvl)))
+                    db.commit()
+                    await dm.send(content=f"**You have successfully been added to the team finder roster**\nYou can look at your info inside <#{int(player_find_channels[region])}>", delete_after=4)
+                    await log_embed(signup_user.avatar_url, f'User <@{str(signup_user.id)}> finished signing up for the team finder')
+                    await create_find_embed(signup_user, rank, steam_link, region, notes, faceit_link, faceit_lvl)
+                    finished = "Finished signing up"
+                    break
+              except: None
+              break
+            else:
+              await dm.send("Invalid link provided, ex. 'https://steamcommunity.com/id/yourname/' or 'https://steamcommunity.com/profiles/yourname/'", delete_after=10)
+        break
+    except:
+      break
+    break
+  safe_delete(message)
+  print(finished)
+  users_signing.remove(signup_user)
+#endregion
+
+class MyClient(commands.Bot):
+  async def on_connect(self):
+    print("Bot connected")
+    DiscordComponents(self)
+    self.add_cog(MyCommands(self))
+
+  async def on_ready(self):
+    global server, log_channel, role_placeholder
+    print(f"Logged on as {str(self.user)}")
+    server = self.get_guild(server)
+    log_channel = server.get_channel(log_channel)
+    role_placeholder = get(server.roles, id=role_placeholder)
+    for guild in self.guilds:
+      if guild.id not in authed_servers:
+        await guild.leave()
+
+  async def clear_dm(self, user):
+    dm = await get_dm(user)
+    async for message in dm.history(limit=100):
+      if message.author == self.user:
+        safe_delete(message)
+
+  async def on_guild_join(self, guild):
+    await log_embed(str(guild.icon_url), f"Bot was invited to server '{guild.name}'\nOwner of server: '{str(guild.owner)}(<@{guild.owner.id}>)'")
+    if guild.id not in authed_servers:
+      await guild.leave()
+      await log_embed(str(guild.icon_url), f"Bot auto left server '{guild.name}'")
+
+  async def on_message(self, ctx):
+    c.execute("SELECT * FROM activity WHERE tag=?", (str(ctx.author),))
+    if c.fetchone() != None:
+      c.execute("UPDATE activity SET last_message=? WHERE tag=?", (str(datetime.now(timez)), str(ctx.author)))
+    else:
+      c.execute("INSERT INTO activity (tag, last_message) VALUES (?, ?)", (str(ctx.author), str(datetime.now(timez))))
+    db.commit()
+    await self.process_commands(ctx)
+  
+  async def on_member_remove(self, member):
+    c.execute("SELECT * FROM team_find WHERE discord=?", (str(member.id),))
+    data = c.fetchone()
+    try:
+      channel = server.get_channel(int(player_find_channels[data[3]]))
+      message = await channel.fetch_message(id=int(data[6]))
+      safe_delete(message)
+    except: None
+    c.execute("DELETE FROM team_find WHERE discord=?", (str(member.id),))
+    db.commit()
+  
+  async def on_button_click(self, interaction):
+    if interaction.component.custom_id == 'team_signup' and interaction.user not in users_signing:
+      try:
+        signup_user = interaction.user
+        dm = await get_dm(signup_user)
+        c.execute("SELECT * FROM team_find WHERE discord=?", (str(interaction.user.id),))
+        if c.fetchone() == None:
+          try:
+            users_signing.append(signup_user)
+            await interaction.respond(content="Check dms for signup process")
+            await log_embed(interaction.user.avatar_url, f'User <@{str(interaction.user.id)}> is signing up for the team finder')
+            asyncio.create_task(signup_thread(self, interaction, dm, signup_user))
+            print(threading.active_count())
+          except:
+            PrintException()
+            if interaction.user in users_signing: users_signing.remove(interaction.user)
+        else:
+          await interaction.respond(content="You are already signed up for the team finder, if you wish to be removed or want to make changes contact an Admin")
+      except:
+         await interaction.respond(content="Please enable direct messages from members on this server!")
+         if interaction.user in users_signing: users_signing.remove(interaction.user)
+    elif interaction.component.custom_id == 'team_signoff':
+      try:
+        user = interaction.user
+        c.execute("SELECT * FROM team_find WHERE discord=?", (str(user.id),))
+        data = c.fetchone()
+        if data != None:
+          await interaction.respond(content="Are you sure you wish to remove your self from the team finder?", components=[
+            Button(style=ButtonStyle.green, emoji="✔", custom_id="signoff_accept")
+          ])
+          interaction = await self.wait_for("button_click", check=lambda interaction: interaction.user == user, timeout=10)
+          if interaction.component.custom_id == "signoff_accept":
+            c.execute("DELETE FROM team_find WHERE discord=?", (str(interaction.user.id),))
+            db.commit()
+            try:
+              for channel_id in player_find_channels:
+                channel = server.get_channel(int(player_find_channels[channel_id]))
+                try:
+                  message = await channel.fetch_message(id=int(data[6]))
+                  if message != None: safe_delete(message); break
+                except: None
+            except:
+              PrintException()
+            await interaction.respond(content="You have been remove from the team finder")
+        else:
+          await interaction.respond(content='You do not appear to be signed up for the team finder')
+      except:
+        PrintException()
+    elif interaction.component.label == "Claim member":
+      role = get(interaction.guild.roles, id=captain_role)
+      if role in interaction.author.roles:
+        member = get(interaction.guild.members, id=int(interaction.component.custom_id))
+        captain = get(interaction.guild.members, id=int(interaction.user.id))
+
+        await interaction.respond(content=f"Sending consent form to member")
+        consented = await self.consent_claim(interaction, member)
+        if consented == True:
+          c.execute("SELECT * FROM teams")
+          data = c.fetchall()
+          for team in data:
+            team_role = get(interaction.guild.roles, id=int(team[4]))
+            if team_role in captain.roles:
+              await member.add_roles(team_role)
+
+          dm = await get_dm(captain)
+          captain_embed = team_finder[3]
+          captain_embed['title'] = f"You claimed user {str(member)}"
+          captain_embed['description'] = f"Their team role should be automatically applied"
+          captain_embed['thumbnail'] = {"url": f"{str(member.avatar_url)}"}
+          await dm.send(embed=discord.Embed().from_dict(captain_embed))
+          dm = await get_dm(member)
+          member_embed = team_finder[3]
+          member_embed['title'] = f"{str(captain)} claimed you!"
+          member_embed['description'] = f"Your team role should be automatically applied"
+          member_embed['thumbnail'] = {"url": f"{str(captain.avatar_url)}"}
+          await dm.send(embed=discord.Embed().from_dict(member_embed))
+          await interaction.message.delete()
+          try:
+            c.execute("DELETE FROM team_find WHERE discord=?", (str(member.id),))
+            db.commit()
+          except:
+            PrintException()
+        else:
+          dm = await get_dm(captain)
+          captain_embed = team_finder[3]
+          captain_embed['title'] = f"{str(member)} {consented}"
+          captain_embed['description'] = f"They will not receive your team role"
+          captain_embed['thumbnail'] = {"url": f"{str(member.avatar_url)}"}
+          await dm.send(embed=discord.Embed().from_dict(captain_embed))
+      else:
+        await interaction.respond(content="You do not have permission to do this")
+    elif interaction.component.label == "Setup tryout":
+      role = get(interaction.guild.roles, id=captain_role)
+      if role in interaction.author.roles:
+        member = get(interaction.guild.members, id=int(str(interaction.component.custom_id).replace('+', '')))
+        captain = get(interaction.guild.members, id=int(interaction.user.id))
+        responded = False
+        if member and captain != None:
+          dm = await get_dm(captain)
+          captain_embed = team_finder[3]
+          captain_embed['title'] = f"Setup tryout with {str(member)}"
+          captain_embed['description'] = f"Message <@{member.id}> to setup a tryout, they are already notified"
+          captain_embed['thumbnail'] = {"url": f"{str(member.avatar_url)}"}
+          try:
+            await dm.send(embed=discord.Embed().from_dict(captain_embed))
+          except:
+            await interaction.respond(content=f"Please make sure you have direct messages from members allowed on this server!")
+            responded = True
+            return
+          dm = await get_dm(member)
+          member_embed = team_finder[3]
+          member_embed['title'] = f"{str(captain)} wants to try you out!"
+          member_embed['description'] = f"Message <@{captain.id}> to setup a tryout, or they will contact you"
+          member_embed['thumbnail'] = {"url": f"{str(captain.avatar_url)}"}
+          try:
+            await dm.send(embed=discord.Embed().from_dict(member_embed))
+            await interaction.respond(content=f"Sent tryout notification {str(member)}")
+          except:
+            if not responded: await interaction.respond(content=f"Please make sure {str(member)} has direct messages from server members allowed on this server!")
+        else:
+          await log_embed("https://www.chaoz.gg/wp-content/uploads/2021/12/ChaoZ-Discord-Bot-min.png", f"Failed to fetch member {str(interaction.component.custom_id).replace('+', '')}, member may no longer be in server")
+      else:
+        await interaction.respond(content="You do not have permission to do this")
+
+  async def consent_claim(self, interaction, member):
+    team = "Unknown"
+    c.execute("SELECT * FROM teams")
+    data = c.fetchall()
+    for team_info in data:
+      if get(interaction.guild.roles, id=int(team_info[4])) in interaction.user.roles:
+        team = team_info[0]
+    dm = await get_dm(member)
+    message = await dm.send(embed=embed_tool(f'<@{interaction.user.id}> From team "{team}" wants to claim you!'), components=[[
+      Button(style=ButtonStyle.green, label="Accept", emoji="✔", custom_id="consent_accept"),
+      Button(style=ButtonStyle.red, label="Decline", emoji="❌", custom_id="consent_decline")
+    ]])
+    start = datetime.now(timez)
+    while (datetime.now(timez) - start).total_seconds() < 60:
+      try:
+        interaction = await self.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=60)
+        if interaction.component.custom_id == "consent_accept":
+          safe_delete(message)
+          return True
+        else:
+          safe_delete(message)
+          return "declined your invitation to your team."
+      except:
+        safe_delete(message)
+        return "didn't accept your invitation to your team in time."
+
+class MyCommands(commands.Cog):
+  def __init__(self, bot):
+    self.bot = bot
+    # self.activityCheck.start()
+
+  @commands.command()
+  async def help(self, ctx):
+    await ctx.send(help_info[0])
+    if ctx.author.guild_permissions.administrator:
+      await ctx.send(help_info[1])
+
+  @tasks.loop(seconds=10.0)
+  async def activityCheck(self):
+    c.execute("SELECT * FROM activity")
+    data = c.fetchall()
+    for entry in data:
+      last_time = parser.parse(entry[1])
+      print(str(datetime.now(timez) - last_time))
+
+#region Teamfind
+  @commands.command()
+  async def teamfind(self, ctx):
+    await safe_delete(ctx.message)
+    if not ctx.author.id in panel_users and get(ctx.guild.roles, id=admin_role) not in ctx.author.roles: await ctx.channel.send('Insufficient perms!'); return
+    message = await ctx.channel.send(embed=embed_tool(title="Team Finder Panel"), components=[[
+      Button(style=ButtonStyle.blue, label="Send embed", emoji="📩", custom_id="find_embed"),
+      Button(style=ButtonStyle.red, label="Edit members", emoji="📑", custom_id="find_edit")
+    ]])
+    start = datetime.now(timez)
+    while (datetime.now(timez) - start).total_seconds() < 30:
+      try:
+        interaction = await self.bot.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=30)
+        if interaction.user == ctx.author:
+          if interaction.component.custom_id == "find_embed":
+            safe_delete(message)
+            await self.send_find_embed(ctx)
+          elif interaction.component.custom_id == "find_edit":
+            safe_delete(message)
+            await self.find_panel(ctx)
+      except:
+        safe_delete(message)
+        return
+
+  #region Teamfind panel
+  async def send_find_embed(self, ctx):
+    await ctx.channel.send(embed=discord.Embed().from_dict(team_finder[0]), components=[[
+      Button(style=ButtonStyle.green, label="Signup", emoji="📩", custom_id="team_signup"),
+      Button(style=ButtonStyle.red, label="Sign off", emoji="📤", custom_id="team_signoff")
+    ]])
+
+  async def find_panel(self, ctx):
+    message = await ctx.channel.send(embed=embed_tool(title="Choose action"), components=[[
+      Button(style=ButtonStyle.red, label="Remove Member", emoji="❌", custom_id="team_remove"),
+      Button(style=ButtonStyle.green, label="Resend Embed", emoji="📤", custom_id="team_resend"),
+      Button(style=ButtonStyle.blue, label="Resend All Embeds", emoji="📑", custom_id="team_resendall")
+    ]])
+    start = datetime.now(timez)
+    while (datetime.now(timez) - start).total_seconds() < 30:
+      try:
+        interaction = await self.bot.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=30)
+        if interaction.user == ctx.author:
+          if interaction.component.custom_id == "team_remove":
+            discord, message_id = await self.choose_member(ctx, message, "Select a member to remove")
+            if discord != False:
+              await self.remove_search_member(ctx, discord, message_id)
+            elif message_id == True:
+              await interaction.respond(content="No members in team find roster")
+              await message.edit(embed=embed_tool(title="Panel tool closing"), components=[], delete_after=3)
+            else:
+              await interaction.respond(content="An unexpected error occurred")
+              await message.edit(embed=embed_tool(title="Panel tool closing"), components=[], delete_after=3)
+          elif interaction.component.custom_id == "team_resend":
+            discord, message_id = await self.choose_member(ctx, message, "Select a member to resend embed")
+            if discord != False:
+              await self.resend_search_member(ctx, discord, message_id)
+              await interaction.respond(content="Successfully resent embed")
+            elif message_id == True:
+              await interaction.respond(content="No members in team find roster")
+              await message.edit(embed=embed_tool(title="Panel tool closing"), components=[], delete_after=3)
+            else:
+              await interaction.respond(content="An unexpected error occurred")
+              await message.edit(embed=embed_tool(title="Panel tool closing"), components=[], delete_after=3)
+          elif interaction.component.custom_id == "team_resendall":
+            c.execute("SELECT * FROM team_find")
+            data = c.fetchall()
+            await interaction.respond(content="Resending all signup embeds")
+            safe_delete(message)
+            for discord, steam, rank, region, notes, embed, message in data:
+              member = server.get_member(int(discord))
+              if member == None: member = discord
+              try:
+                channel = server.get_channel(int(player_find_channels[region]))
+                message_embed = await channel.fetch_message(id=int(message))
+                safe_delete(message_embed)
+              except: None
+              await create_find_embed(member, str(rank), str(steam), str(region), str(notes))
+            await ctx.channel.send("Finished resending all embeds", delete_after=4)
+      except:
+        safe_delete(message)
+        return
+
+  async def choose_member(self, ctx, message, text):
+    try:
+      member_list = []
+      c.execute("SELECT * FROM team_find")
+      data = c.fetchall()
+      if data == []: return False, True
+      for entry in data:
+        member = get(ctx.guild.members, id=int(entry[0]))
+        # if member != None:
+        member_list.append(Button(style=ButtonStyle.green, label=str(member), custom_id=entry[6]))
+      index_start , index_stop = 0, 3
+      safe_delete(message)
+      while True:
+        index_stop = index_start + 3
+        if index_stop > len(member_list):
+          index_stop = len(member_list)
+        display_list = [Button(style=ButtonStyle.red, label="◀", custom_id="left")]
+        for button in member_list[index_start:index_stop]:
+          display_list.append(button)
+        display_list.append(Button(style=ButtonStyle.blue, label="▶", custom_id="right"))
+        message = await ctx.channel.send(embed=embed_tool(title=text), components=[display_list])
+        start = datetime.now(timez)
+        while (datetime.now(timez) - start).total_seconds() < 30:
+          try:
+            interaction = await self.bot.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=30)
+            if interaction.user == ctx.author:
+              if interaction.component.custom_id == "left":
+                if index_start > 0:
+                  index_start -= 3
+                  break
+              elif interaction.component.custom_id == "right":
+                if index_stop < len(member_list):
+                  index_start += 3
+                  break
+              else:
+                safe_delete(message)
+                return interaction.component.label, interaction.component.custom_id
+          except:
+            safe_delete(message)
+            return False, False
+        safe_delete(message)
+    except:
+      PrintException()
+
+  async def remove_search_member(self, ctx, discord, message):
+    if '#' in str(discord):
+      name, disc = discord.split('#')
+      discord = get(ctx.guild.members, name=name, discriminator=disc)
+    try:
+      c.execute("DELETE FROM team_find WHERE discord=?", (str(discord.id),))
+      db.commit()
+      try:
+        for channel_id in player_find_channels:
+          channel = server.get_channel(int(player_find_channels[channel_id]))
+          message = await channel.fetch_message(id=int(message))
+          if message != None: break
+      except: None
+      await ctx.channel.send(f"Removed {discord} from the team finder roster", delete_after=4)
+      safe_delete(message)
+    except:
+      PrintException()
+      safe_delete(message)
+
+  async def resend_search_member(self, ctx, discord, message):
+    name, disc = discord.split('#')
+    member = get(ctx.guild.members, name=name, discriminator=disc)
+    try:
+      c.execute("SELECT * FROM team_find WHERE discord=?", (str(member.id),))
+      entry = c.fetchone()
+      try:
+        channel = server.get_channel(int(player_find_channels[entry[3]]))
+        message = await channel.fetch_message(id=int(message))
+        await ctx.channel.send(f"Removed existing embed for {str(member)}", delete_after=4)
+      except: None
+      await create_find_embed(member, str(entry[2]), str(entry[1]), str(entry[3]), str(entry[4]))
+      safe_delete(message)
+    except:
+      PrintException()
+      safe_delete(message)
+  #endregion
+#endregion
+
+#region Teams panel
+  @commands.command()
+  async def teams(self, ctx):
+    if ctx.author.id in panel_users: captain = False
+    else:
+      if get(ctx.guild.roles, id=captain_role) in ctx.author.roles: captain = True
+      else:
+        await ctx.channel.send('Insufficient perms!', delete_after=4); return
+    await log_embed(ctx.author.avatar_url, f'User <@{str(ctx.author.id)}> Issued command /teams')
+    await safe_delete(ctx.message)
+    message = await ctx.channel.send(embed=embed_tool(title="**Team panel**"), components=[[
+      Button(style=ButtonStyle.green, label="Add team", emoji="🥇", custom_id="team_create", disabled=captain),
+      Button(style=ButtonStyle.red, label="Remove team", emoji="🧧", custom_id="team_delete", disabled=captain),
+      Button(style=ButtonStyle.blue, label="Edit members", emoji="📄", custom_id="team_edit"),
+      Button(style=ButtonStyle.red, label="View teams", emoji="🎫", custom_id="team_view")
+      ]])
+    start = datetime.now(timez)
+    while (datetime.now(timez) - start).total_seconds() < 30:
+      try: 
+        interaction = await self.bot.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=30)
+        if interaction.user == ctx.author:
+          safe_delete(message)
+          if interaction.component.custom_id == 'team_create':
+            await self.create_team(interaction)
+          elif interaction.component.custom_id == 'team_delete':
+            await self.remove_team(interaction)
+          elif interaction.component.custom_id == 'team_edit':
+            await self.team_panel(interaction, captain)
+          elif interaction.component.custom_id == 'team_view':
+            c.execute("SELECT * FROM teams")
+            data = c.fetchall()
+            output = ["```diff", "Teams"]
+            for team in data:
+              output.append(f"+{team[0]}")
+              if team[1] != None:
+                for member in team[1].split('|'):
+                  if ';' in member:
+                    try:
+                      disc, steam, region, date_added = member.split(';')
+                      date_added = date_added.split(' ')[0]
+                      member = get(ctx.guild.members, id=int(disc))
+                      if get(ctx.guild.roles, id=captain_role) in member.roles:
+                        output.append(f"+ Captain discord: {str(member)}, steam: {steam}, region: {region}, date added: {date_added}")
+                      else:
+                        output.append(f"- discord: {str(member)}, steam: {steam}, region: {region}, date added: {date_added}")
+                    except: 
+                      PrintException()
+                      await ctx.channel.send("Invalid member form body", delete_after=4)
+                  else:
+                    output.append("- No members")
+              else:
+                    output.append("- No members")
+            output.append("```")
+            await ctx.channel.send(str("\n".join(output)))
+      except: 
+        safe_delete(message)
+        return
+
+  async def create_team(self, ctx):
+    captain = None
+    message = await ctx.channel.send(embed=embed_tool(title='**Send team name**'))
+    start = datetime.now(timez)
+    while (datetime.now(timez) - start).total_seconds() < 60:
+      try:
+        team_name = await self.bot.wait_for('message', timeout=60)
+        if team_name.author == ctx.author:
+          await safe_delete(team_name)
+          team_name = team_name.content
+          c.execute("SELECT * FROM teams WHERE team_name=?", (str(team_name),))
+          if c.fetchone() == None:
+            interaction, region = await region_select(self.bot, message, embed_tool(f"**Please choose team {team_name}'s region**"), ctx.author)
+            if region == False: safe_delete(message); return
+            c.execute("INSERT INTO teams (team_name, team_region) VALUES (?, ?)", (str(team_name), str(region)))
+            db.commit()
+            await interaction.respond(content=f"Created team {team_name}")
+            safe_delete(message)
+            message2 = await ctx.channel.send(embed=embed_tool("**Send captains discord id**"))
+            start = datetime.now(timez)
+            while (datetime.now(timez) - start).total_seconds() < 60:
+                member_id = await self.bot.wait_for('message', timeout=60)
+                if member_id.author == ctx.author:
+                  if str(member_id.content).isnumeric():
+                    captain = get(ctx.guild.members, id=int(member_id.content))
+                    await captain.add_roles(get(ctx.guild.roles, id=captain_role))
+                    await safe_delete(message2)
+                    await safe_delete(member_id)
+                    await ctx.channel.send(f"Gave captain role to {str(captain)}", delete_after=4)
+                    break
+                  else:
+                    await ctx.channel.send(f"Please supply the member's ID, not discord tag", delete_after=4)
+            await log_embed(ctx.author.avatar_url, f'User <@{str(ctx.author.id)}> Created team "{team_name}"')
+            message2 = await ctx.channel.send(embed=embed_tool(title="Create channels for team?"), components=[[
+              Button(style=ButtonStyle.green, emoji='✔', custom_id="yes"), Button(style=ButtonStyle.green, emoji='❌', custom_id="no")
+            ]])
+            start = datetime.now(timez)
+            while (datetime.now(timez) - start).total_seconds() < 30:
+              try: 
+                interaction = await self.bot.wait_for('button_click', check=lambda interaction: interaction.message == message2, timeout=30)
+                if interaction.user == ctx.author:
+                  if interaction.component.custom_id == 'yes':
+                    await self.create_team_category(ctx.guild, team_name, captain)
+                    await log_embed(ctx.author.avatar_url, f'User <@{str(ctx.author.id)}> Created channels for team "{team_name}"')
+                  await safe_delete(message2)
+                  break
+              except: 
+                safe_delete(message)
+                return
+          else:
+            await ctx.channel.send("Team already exists", delete_after=4)
+      except: 
+        safe_delete(message)
+        return
+
+  async def remove_team(self, ctx):
+    comps = []
+    c.execute("SELECT * FROM teams")
+    data = c.fetchall()
+    teams = []
+    for entry in data:
+      teams.append(entry[0])
+      comps.append(Button(style=ButtonStyle.blue, label=entry[0], custom_id=entry[0]))
+    message = await ctx.channel.send(embed=embed_tool(title="**Choose team to edit**"), components=[comps])
+    start = datetime.now(timez)
+    while (datetime.now(timez) - start).total_seconds() < 10:
+      try:
+        interaction = await self.bot.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=10)
+        if interaction.user == ctx.author:
+          c.execute("DELETE FROM teams WHERE team_name=?", (str(interaction.component.custom_id),))
+          db.commit()
+          safe_delete(message)
+          await interaction.respond(content=f"Team {interaction.component.custom_id} removed successfully")
+          await log_embed(ctx.author.avatar_url, f'User <@{str(ctx.author.id)}> Removed team "{interaction.component.custom_id}"')
+          break
+      except: 
+        safe_delete(message)
+        return
+
+  async def create_team_category(self, server, name, captain=None):
+    role = await server.create_role(name=name)
+    role.hoist = True
+    await role.edit(position=int(role_placeholder.position))
+    if captain != None:
+      await captain.add_roles(role)
+    length = round((29 - (len(name) + 4)) / 2)
+    cat_name = f'{"-"*length}[ {name} ]{"-"*length}'
+    overwrites = {'@everyone': {'read_message_history': False, 'manage_webhooks': False, 'manage_roles': False, 'manage_guild': None, 'view_guild_insights': None, 'speak': True, 'send_messages': False, 'send_tts_messages': False, 'connect': False, 'move_members': False, 'create_instant_invite': False, 'mute_members': False, 'deafen_members': False, 'use_slash_commands': False, 'view_audit_log': None, 'manage_channels': False, 'manage_emojis': None, 'manage_messages': False, 'embed_links': False, 'attach_files': False, 'administrator': None, 'kick_members': None, 'external_emojis': False, 'read_messages': False, 'add_reactions': False, 'use_voice_activation': True, 'request_to_speak': None, 'mention_everyone': False, 'manage_nicknames': None, 'ban_members': None, 'change_nickname': None, 'stream': True, 
+'priority_speaker': False}, f'{name}': {'read_message_history': True, 'manage_webhooks': False, 'manage_roles': False, 'manage_guild': None, 'view_guild_insights': None, 'speak': True, 'send_messages': True, 'send_tts_messages': False, 'connect': True, 'move_members': False, 'create_instant_invite': False, 'mute_members': False, 'deafen_members': False, 'use_slash_commands': False, 'view_audit_log': None, 'manage_channels': False, 'manage_emojis': None, 'manage_messages': False, 'embed_links': True, 'attach_files': True, 'administrator': None, 'kick_members': None, 'external_emojis': True, 'read_messages': True, 'add_reactions': True, 'use_voice_activation': True, 'request_to_speak': None, 'mention_everyone': True, 'manage_nicknames': None, 'ban_members': None, 'change_nickname': None, 'stream': True, 'priority_speaker': False}}
+    overwrite = {}
+    for rolename in overwrites:
+      role = get(server.roles, name=rolename)
+      if role != None: overwrite[role] = discord.PermissionOverwrite(**overwrites[rolename])
+    category = await server.create_category(name=cat_name, overwrites=overwrite)
+    await category.create_text_channel(name=f"{'-'.join(name.split(' '))}-chat")
+    await category.create_voice_channel(name=f"{name} Voice")
+    c.execute("UPDATE teams SET category=?, role=? WHERE team_name=?", (str(category.id), str(role.id), str(name)))
+    db.commit()
+
+  async def select_team(self, ctx, captain):
+    try:
+      team_list = []
+      c.execute("SELECT * FROM teams")
+      data = c.fetchall()
+      if data == []: return False
+      for entry in data:
+        if get(ctx.guild.roles, id=int(entry[4])) in ctx.author.roles or not captain:
+          team_list.append(Button(style=ButtonStyle.green, label=str(entry[0]), custom_id=str(entry[0])))
+      index_start , index_stop = 0, 3
+      while True:
+        index_stop = index_start + 3
+        if index_stop > len(team_list):
+          index_stop = len(team_list)
+        display_list = [Button(style=ButtonStyle.red, label="◀", custom_id="left")]
+        for button in team_list[index_start:index_stop]:
+          display_list.append(button)
+        display_list.append(Button(style=ButtonStyle.blue, label="▶", custom_id="right"))
+        message = await ctx.channel.send(embed=embed_tool(title="Choose team to edit"), components=[display_list])
+        start = datetime.now(timez)
+        while (datetime.now(timez) - start).total_seconds() < 30:
+          try:
+            interaction = await self.bot.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=30)
+            if interaction.user == ctx.author:
+              if interaction.component.custom_id == "left":
+                if index_start > 0:
+                  index_start -= 3
+                  break
+              elif interaction.component.custom_id == "right":
+                if index_stop < len(team_list):
+                  index_start += 3
+                  break
+              else:
+                safe_delete(message)
+                return interaction
+          except:
+            safe_delete(message)
+            return False
+        safe_delete(message)
+    except:
+      PrintException()
+
+  async def team_panel(self, ctx, captain):
+    try:
+      interaction = await self.select_team(ctx, captain)
+      if interaction != False:
+        await self.edit_team(interaction, interaction.component.custom_id)
+    except:
+      PrintException()
+
+  async def edit_team(self, ctx, team):
+    c.execute("SELECT * FROM teams WHERE team_name=?", (str(team),))
+    data = c.fetchone()
+    message = await ctx.channel.send(embed=embed_tool(title="**Team edit actions**"), components=[[Button(style=ButtonStyle.green, label="Add member", emoji="🎈", custom_id="team_add"), Button(style=ButtonStyle.blue, label="Edit member", emoji="📑", custom_id="team_edit", disabled=True), Button(style=ButtonStyle.blue, label="Remove member", emoji="📑", custom_id="team_remove")]])
+    start = datetime.now(timez)
+    while (datetime.now(timez) - start).total_seconds() < 30:
+      try: 
+        interaction = await self.bot.wait_for("button_click", check=lambda interaction: interaction.message == message, timeout=30)
+        if interaction.user == ctx.author:
+          safe_delete(message)
+          if interaction.component.custom_id == 'team_add':
+            message2 = await ctx.channel.send(embed=embed_tool(title='**Send player info** ex. "__discordid__;__steam-profile__;__region(NA, EU, etc.)__" **Seperate with ;**'))
+            start = datetime.now(timez)
+            while (datetime.now(timez) - start).total_seconds() < 180:
+              try:
+                player_info = await self.bot.wait_for('message', timeout=180)
+                if player_info.author == ctx.author:
+                  await safe_delete(message2)
+                  if ';' not in player_info.content: return
+                  try:
+                    player_data = player_info.content.split(';')
+                    try:
+                      player = get(ctx.guild.members, id=player_data[0])
+                      player_data.append(str(datetime.now(timez)))
+                      if data[1] != None:
+                        member_data = data[1].split('|')
+                        c.execute('UPDATE teams SET team_players=? WHERE team_name=?', (str(f'{"|".join(member_data)}|{";".join(player_data)}'), str(team)))
+                      else:
+                        c.execute('UPDATE teams SET team_players=? WHERE team_name=?', (str(";".join(player_data)), str(team)))
+                      db.commit()
+                      c.execute("SELECT * FROM teams WHERE team_name=?", (str(team),))
+                      data = c.fetchone()
+                      try:
+                        role = get(ctx.guild.roles, id=int(data[4]))
+                        await player.add_roles(role)
+                        await log_embed(player.avatar_url, f'Gave role "{role.name}" to <@{player.id}>')
+                      except:
+                        await ctx.channel.send("Could not give user team role", delete_after=4)
+                      await safe_delete(player_info)
+                      await ctx.channel.send(f'**Player: {str(player)} has been added to team {team}**', delete_after=4)
+                      await log_embed(ctx.author.avatar_url, f'User <@{str(ctx.author.id)}> Added player {str(player)} to team {team}')
+                      break
+                    except:
+                      await ctx.channel.send('Invalid discord tag passed', delete_after=3)
+                  except Exception as e:
+                    PrintException()
+                    await ctx.channel.send('Interaction failed', delete_after=3)
+                    break
+              except: 
+                await safe_delete(message2)
+                return
+          elif interaction.component.custom_id == 'team_edit':
+            None
+          elif interaction.component.custom_id == 'team_remove':
+            try: 
+              players = data[1].split('|')
+              comps = []
+              for player in players:
+                player_info = player.split(';')
+                comps.append(Button(style=ButtonStyle.red, label=player_info[0], custom_id=player_info[0]))
+              message3 = await ctx.channel.send(embed=embed_tool(title="**Choose member to remove**"), components=[comps])
+              start = datetime.now(timez)
+              while (datetime.now(timez) - start).total_seconds() < 30:
+                try: 
+                  interaction = await self.bot.wait_for("button_click", check=lambda interaction: interaction.message == message3, timeout=30)
+                  if interaction.user == ctx.author:
+                    await safe_delete(message3)
+                    players_data = []
+                    for player in players:
+                      player_info = player.split(';')
+                      if player_info[0] != interaction.component.custom_id:
+                        players_data.append(player)
+                    c.execute("UPDATE teams SET team_players=? WHERE team_name=?", (str("|".join(players_data)), str(team)))
+                    db.commit()
+                    await ctx.channel.send(content='**Member removed successfully**', delete_after=4)
+                    await log_embed(ctx.author.avatar_url, f'User <@{str(ctx.author.id)}> Removed member "{interaction.component.custom_id}" from "{team}"')
+                    break
+                except:
+                  await safe_delete(message3)
+                  return
+            except:
+              await ctx.channel.send("No members in this team!", delete_after=4)
+      except: 
+        safe_delete(message)
+        return
+#endregion
+
+#region Basic commands
+  @commands.command()
+  async def clear(self, ctx, count=5):
+    await ctx.channel.purge(limit=count+1)
+    await ctx.channel.send(f"Deleted {count} messages", delete_after=3)
+
+  # @commands.command()
+  # async def say(self, ctx):
+  #   channel = ctx.channel
+  #   msg = ctx.message.content
+  #   await safe_delete(ctx.message)
+  #   await channel.send(msg[5:])
+#endregion
+
+if __name__ == '__main__':
+  loop = asyncio.get_event_loop()
+  client = MyClient(command_prefix='>', intents=discord.Intents.all())
+  client.remove_command('help')
+  loop.create_task(client.start(bot.chaoz_bot().token))
+  loop.run_forever()
