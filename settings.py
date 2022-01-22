@@ -1,0 +1,22 @@
+from decouple import config
+from zoneinfo import ZoneInfo
+
+DEBUG = True
+
+BOT_TOKEN = 'OTE5ODQzNjY2MDk5NTcyNzY2.YbbtKw.8RtNiGTcQWHSAhCqCow9-l692ac'
+
+TIMEZONE  = ZoneInfo('EST')
+
+
+
+# Faceit Settings
+
+FACEIT_APP_ID = config('FACEIT_APP_ID')
+
+FACEIT_SERVER_SIDE_NAME = config('FACEIT_SERVER_SIDE_NAME')
+
+FACEIT_SERVER_SIDE_KEY = config('FACEIT_SERVER_SIDE_KEY')
+
+FACEIT_CLIENT_SIDE_NAME = config('FACEIT_CLIENT_SIDE_NAME')
+
+FACEIT_CLIENT_SIDE_KEY = config('FACEIT_CLIENT_SIDE_KEY')
