@@ -1,38 +1,51 @@
+from dataclasses import dataclass
+
 import requests
 from bs4 import BeautifulSoup
 
 BASE_URL = 'https://steamcommunity.com/id/'
 
 
+def get_steam_profile_data(url):
+    """Collects data from a Steam Profile public page."""
+
+    response = requests.get(url)
+    html = BeautifulSoup(response.text)
+    name = html.find('span', {'class': 'actual_persona_name'}).text
+    real_name = html.find('bdi').text
+    data = {
+        'name': name,
+        'real_name': real_name,
+        'url': url
+    }
+    return data
+
+
+def steam_profile_url_is_valid(url) -> bool:
+    """Checks if a Steam Profile url is valid. Returns a Boolean"""
+    response = requests.get(url)
+    steam_error_message = 'The specified profile could not be found.' 
+    url_is_valid = steam_error_message not in response.text
+    return url_is_valid
+
+
+@dataclass
 class SteamProfile:
-
-    def __init__(self, name, real_name, url=None):
-        self.name = name
-        self.real_name = real_name
-        self.url = url
-
-    @classmethod
-    def from_url(cls, steam_profile_url):
-        response = requests.get(steam_profile_url)
-        soup = BeautifulSoup(response.text, features='html.parser')
-
-        name = soup.find('span', {'class': 'actual_persona_name'}).text
-        real_name = soup.find('bdi').text
-        url = steam_profile_url
-        return cls(name, real_name, url)
+    name: str
+    real_name: str
+    url: str = None
 
     def __str__(self):
         return self.name
 
-    def __repr__(self):
-        return f"SteamProfile(name={repr(self.name)}, real_name={repr(self.real_name)}, url={repr(self.url)})"
+    @classmethod
+    def from_url(cls, steam_profile_url):
+        """Create a Steam Profile from a url."""
+        if steam_profile_url_is_valid(steam_profile_url): 
+            steam_profile_data = get_steam_profile_data(steam_profile_url)
+            print(steam_profile_data)
+            return cls(**steam_profile_data)
 
     def validate_url(self) -> bool:
-        response = requests.get(self.url + '1')
-        # The text 'The specified profile could not be found' occurs when a steam profile isn't found.
-        return 'The specified profile could not be found.' in response.text
-
-
-if __name__ == '__main__':
-    profile = SteamProfile.from_url('https://steamcommunity.com/id/zackyp123')
-    print(profile.validate_url())
+        """Checks whether the SteamProfile's current url is valid."""
+        return steam_profile_url_is_valid(self.url)
