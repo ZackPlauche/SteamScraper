@@ -16,11 +16,21 @@ class TestSteamProfileAPI(unittest.TestCase):
         expected_result = {
             'name': 'SneakAttackZack',
             'real_name': 'Zack Plauche',
-            'url': VALID_STEAM_PROFILE_URL
+            'url': VALID_STEAM_PROFILE_URL,
+            'country': 'United States',
+            'country_code': 'US',
+            'continent': 'North America',
+            'continent_code': 'NA',
         }
         self.assertEqual(get_steam_profile_data(VALID_STEAM_PROFILE_URL), expected_result)
 
     def test_build_steam_profile(self):
-        profile = SteamProfile(name='SneakAttackZack', real_name='Zack Plauche', url=VALID_STEAM_PROFILE_URL)
+        profile = SteamProfile(name='SneakAttackZack', 
+                               real_name='Zack Plauche', 
+                               url=VALID_STEAM_PROFILE_URL,
+                               country='United States',
+                               country_code='US',
+                               continent='North America',
+                               continent_code='NA')
         other_profile = SteamProfile.from_url(VALID_STEAM_PROFILE_URL)
         self.assertEqual(profile, other_profile, 'These two SteamProfiles are not equal.')
