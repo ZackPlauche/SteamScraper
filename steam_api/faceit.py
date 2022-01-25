@@ -50,11 +50,3 @@ def faceitfinder_page_is_valid(faceitfinder_page_html: str) -> bool:
     """
 
     return 'Players not found!'not in faceitfinder_page_html
-
-
-if __name__ == '__main__':
-    from pprint import pprint
-    omega_id = 76561197974402593
-    zack_id = 76561198811855301
-    result = scrape_faceitfinder(zack_id)
-    pprint(result)

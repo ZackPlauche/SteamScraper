@@ -1,6 +1,6 @@
 import unittest
 
-from api.steam import SteamProfile, steam_profile_url_is_valid, get_steam_profile_data
+from steam_api.steam import SteamProfile, steam_profile_url_is_valid, get_steam_profile_data
 
 VALID_STEAM_PROFILE_URL = 'https://steamcommunity.com/id/zackyp123'
 INVALID_STEAM_PROFILE_URL = 'https://steamcommunity.com/id/zackyp1234'

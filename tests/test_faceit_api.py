@@ -1,6 +1,6 @@
 import unittest
 
-from api.faceit import get_faceit_data
+from steam_api.faceit import get_faceit_data
 
 
 VALID_STEAM_URL_FOR_FACEIT = ''
