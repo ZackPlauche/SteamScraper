@@ -1,8 +1,7 @@
-from dataclasses import dataclass
+import asyncio
 import time
 from datetime import datetime
 
-import asyncio
 from bs4 import BeautifulSoup
 from pyppeteer import launch
 
