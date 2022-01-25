@@ -9,10 +9,13 @@
 - [ ] Logging 
 - [ ]
 
+### Warning
+The cloudscrape dependency is likely to need to change.
+
 ### Todos
-1. [ ] Effectively collect user data
+1. [x] Effectively collect user data
     1. [x] Collect user data from steam
-    2. [ ] Collect user data from faceit search
+    2. [x] Collect user data from faceit search
         - [x] Account Created
         - [x] Plays CS:GO since
         - [x] Last 2 week hours
@@ -23,4 +26,4 @@
         - [x] Matches
         - [x] ELO
         - [x] K/D
-    3. [ ] Collect user data from csgo stats site
+    3. [x] Collect user data from csgo stats site

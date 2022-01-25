@@ -3,10 +3,11 @@ import re
 from bs4 import BeautifulSoup
 import cloudscraper
 
+
 CSGO_STATS_URL = 'https://csgostats.gg/player'
 CSGO_STATS_URL_TEMPLATE = 'https://csgostats.gg/player/{steam_id_64}'
 
-def scrape_csgo_data(steam_id_64):
+def scrape_csgo_gg(steam_id_64):
     url = CSGO_STATS_URL_TEMPLATE.format(steam_id_64=steam_id_64)
     scraper = cloudscraper.create_scraper()
     response = scraper.get(url)
@@ -27,4 +28,4 @@ def scrape_csgo_data(steam_id_64):
 
 
 if __name__ == '__main__':
-    print(scrape_csgo_data(76561198115900768))
+    print(scrape_csgo_gg(76561198115900768))
