@@ -97,8 +97,6 @@ class SteamProfile:
 
 
 if __name__ == '__main__':
-    from pprint import pprint
     zacks_id = 'https://steamcommunity.com/id/zackyp123/'
     alphas_id = 'https://steamcommunity.com/id/spinahpowel/'
-    steam_profile = SteamProfile.from_url(zacks_id)
-    pprint(steam_profile)
+    steam_profile = SteamProfile.from_url(alphas_id)
