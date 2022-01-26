@@ -1,13 +1,5 @@
-
-# Notes:
-- Alpha's steam profile: https://steamcommunity.com/id/Omega_1001/
-- Alpha's faceit profile: https://www.faceit.com/en/players/AlphaWolf-07
-- Alpha's faceit profile via faceit finder: https://faceitfinder.com/profile/76561197974402593
-- Alpha's csgostats.gg profile: https://csgostats.gg/player/76561197974402593#/matches
-
-### Requirements
-- [ ] Logging 
-- [ ]
+# Steam Scraper
+An open source Python project for collecting Steam Data.
 
 ### Warning
 The cloudscrape dependency is likely to need to change.
